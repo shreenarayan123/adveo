@@ -1,0 +1,36 @@
+
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model AdPattern {
+  id          String   @id @default(cuid())
+  category    String   // "electronics", "fashion", "beauty", etc.
+  theme       String   // matches Theme type
+  patterns    Json     // { hooks: [], narratives: [], cameraAngles: [], taglines: [] }
+  adCount     Int      // number of ads analyzed
+  lastUpdated DateTime @default(now())
+
+  @@unique([category, theme])
+  @@index([category])
+}
+
+model Project {
+  id           String   @id @default(uuid())
+  imageUrl     String
+  theme        String
+  status       String   // 'processing' | 'script' | 'shots' | 'video' | 'audio' | 'finalizing' | 'done' | 'error'
+  progressStep String
+  videoUrl     String?
+  error        String?
+  scriptJson   String?
+  voiceId      String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
