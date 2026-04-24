@@ -4,8 +4,6 @@ import path from 'path';
 import ffmpeg from 'fluent-ffmpeg';
 import os from 'os';
 
-// Royalty-free background music (CC0 licensed)
-const BGM_URL = 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -91,7 +89,7 @@ export async function createSlideshow(imageUrls: string[], scenes: any[]): Promi
   }
 }
 
-// ─── Merge Audio + Video + BGM ────────────────────────────────────────────────
+// ─── Merge Narration over Veo video (Veo audio = BGM @ 25%, narration @ 100%) ─
 
 export async function mergeAudioVideo(
   videoUrl: string,
@@ -100,86 +98,154 @@ export async function mergeAudioVideo(
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'adveo-merge-'));
 
   try {
-    const videoPath = path.join(tempDir, 'video.mp4');
-    const audioPath = path.join(tempDir, 'audio.mp3');
-    const bgmPath   = path.join(tempDir, 'bgm.mp3');
+    const videoPath  = path.join(tempDir, 'video.mp4');
+    const audioPath  = path.join(tempDir, 'narration.mp3');
     const outputPath = path.join(tempDir, `final-${Date.now()}.mp4`);
 
-    console.log('[FFmpeg] Downloading video and audio...');
+    console.log('[FFmpeg] Downloading video and narration...');
     await Promise.all([
       downloadFile(videoUrl, videoPath),
       downloadFile(audioUrl, audioPath),
     ]);
 
-    // Get both durations
     const [videoDur, audioDur] = await Promise.all([
       getDuration(videoPath),
       getDuration(audioPath),
     ]);
-    console.log(`[FFmpeg] Video: ${videoDur.toFixed(2)}s | Audio: ${audioDur.toFixed(2)}s`);
+    console.log(`[FFmpeg] Video: ${videoDur.toFixed(2)}s | Narration: ${audioDur.toFixed(2)}s`);
 
-    // Target duration = audio length (narration is the true pace)
-    const targetDur = Math.min(Math.max(audioDur, 12), 20);
+    // BUG FIX: target is driven by VIDEO length, not narration length.
+    // Previously used audioDur which clamped the 18s video to ~12s (narration length).
+    // Now: keep the full video duration. Narration plays, then BGM continues.
+    // Clamp between 16s min and 22s max for ad safety.
+    const targetDur = Math.min(Math.max(videoDur, 16), 22);
+    console.log(`[FFmpeg] Target duration: ${targetDur.toFixed(2)}s (video-driven, not narration-driven)`);
 
-    // Try to download BGM; if it fails, proceed without it
-    let hasBgm = false;
-    try {
-      await downloadFile(BGM_URL, bgmPath);
-      hasBgm = true;
-      console.log('[FFmpeg] BGM downloaded successfully');
-    } catch (e) {
-      console.warn('[FFmpeg] Could not download BGM, continuing without it');
-    }
-
-    if (hasBgm) {
-      // Mix narration (full volume) + BGM (15% volume), loop BGM to fill duration, trim to targetDur
-      await runFFmpeg(
-        ffmpeg()
-          .input(videoPath)
-          .inputOptions([`-stream_loop -1`]) // loop video if shorter than audio
-          .input(audioPath)
-          .input(bgmPath)
-          .inputOptions([`-stream_loop -1`]) // loop BGM to fill duration
-          .complexFilter([
-            // Mix narration at 100% + BGM at 15%
-            `[1:a]volume=1.0[narration]`,
-            `[2:a]volume=0.15[bgm]`,
-            `[narration][bgm]amix=inputs=2:duration=shortest[mixed_audio]`,
-          ])
-          .outputOptions([
-            `-map 0:v`,
-            `-map [mixed_audio]`,
-            `-c:v copy`,
-            `-c:a aac`,
-            `-b:a 192k`,
-            `-t ${targetDur}`,   // trim to target duration
-            `-movflags +faststart`,
-          ])
-          .output(outputPath)
-      );
-    } else {
-      // No BGM — just merge video + narration, loop video if shorter
-      await runFFmpeg(
-        ffmpeg()
-          .input(videoPath)
-          .inputOptions([`-stream_loop -1`])
-          .input(audioPath)
-          .outputOptions([
-            `-map 0:v`,
-            `-map 1:a`,
-            `-c:v copy`,
-            `-c:a aac`,
-            `-b:a 192k`,
-            `-t ${targetDur}`,
-            `-movflags +faststart`,
-          ])
-          .output(outputPath)
-      );
-    }
+    // Mix strategy:
+    //   - Veo's own video audio track = scene-matched BGM at 25%
+    //   - ElevenLabs narration = 100%
+    //   - Loop video if somehow shorter than targetDur
+    //   - Narration ends naturally; BGM fills remaining video
+    await runFFmpeg(
+      ffmpeg()
+        .input(videoPath)
+        .inputOptions(['-stream_loop -1'])   // loop video if shorter than narration
+        .input(audioPath)
+        .complexFilter([
+          '[0:a]volume=0.25[veo_bgm]',
+          '[1:a]volume=1.0[narration]',
+          '[veo_bgm][narration]amix=inputs=2:duration=longest[mixed_audio]',
+        ])
+        .outputOptions([
+          '-map 0:v',
+          '-map [mixed_audio]',
+          '-c:v copy',
+          '-c:a aac',
+          '-b:a 192k',
+          `-t ${targetDur}`,
+          '-movflags +faststart',
+        ])
+        .output(outputPath)
+    );
 
     const finalUrl = await uploadFileToCloudinary(outputPath, `final-${Date.now()}.mp4`);
-    console.log('[FFmpeg] Final video uploaded:', finalUrl);
+    console.log('[FFmpeg] Final video with audio uploaded:', finalUrl);
     return { url: finalUrl, videoUrl, audioUrl };
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+// ─── Concatenate Multiple Clips (robust filter_complex + saturation boost) ────
+
+export async function concatenateClips(clipUrls: string[], targetDurationSeconds?: number): Promise<string> {
+  if (!Array.isArray(clipUrls) || clipUrls.length === 0) {
+    throw new Error('concatenateClips requires at least one clip URL');
+  }
+
+  if (clipUrls.length === 1) {
+    return clipUrls[0];
+  }
+
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'adveo-concat-'));
+
+  try {
+    const localClipPaths: string[] = [];
+
+    for (let i = 0; i < clipUrls.length; i++) {
+      const localPath = path.join(tempDir, `clip-${i}.mp4`);
+      console.log(`[FFmpeg] Downloading clip ${i + 1}/${clipUrls.length}:`, clipUrls[i]);
+      await downloadFile(clipUrls[i], localPath);
+      localClipPaths.push(localPath);
+    }
+
+    // Step 1: Normalize each clip to identical codec/fps/resolution.
+    // This is critical — if clips have mismatched stream formats, the demuxer concat
+    // silently drops audio or entire clips. Re-encoding guarantees compatibility.
+    const normalizedPaths: string[] = [];
+    for (let i = 0; i < localClipPaths.length; i++) {
+      const normalizedPath = path.join(tempDir, `norm-${i}.mp4`);
+      console.log(`[FFmpeg] Normalizing clip ${i + 1}/${localClipPaths.length}...`);
+
+      await runFFmpeg(
+        ffmpeg()
+          .input(localClipPaths[i])
+          .outputOptions([
+            '-c:v libx264',
+            '-c:a aac',
+            '-pix_fmt yuv420p',
+            '-r 24',
+            '-ar 44100',
+            '-ac 2',
+            // Saturation boost: corrects Veo's tendency to generate desaturated/B&W output.
+            // eq=saturation=1.3 brings muted colors back to natural commercial vibrancy.
+            // eq=contrast=1.05 adds slight punch without blowing highlights.
+            '-vf eq=saturation=1.3:contrast=1.05',
+            '-preset fast',
+            '-movflags +faststart',
+          ])
+          .output(normalizedPath)
+      );
+
+      normalizedPaths.push(normalizedPath);
+    }
+
+    // Step 2: Concatenate using filter_complex — more robust than the concat demuxer.
+    // filter_complex concat guarantees ALL clips are included, even if stream layouts differ.
+    const outputPath = path.join(tempDir, `final-${Date.now()}.mp4`);
+    const n = normalizedPaths.length;
+
+    // Build the filter_complex concat string: [0:v][0:a][1:v][1:a]...concat=n=N:v=1:a=1[outv][outa]
+    const inputSegments = normalizedPaths.map((_, i) => `[${i}:v][${i}:a]`).join('');
+    const concatFilter = `${inputSegments}concat=n=${n}:v=1:a=1[outv][outa]`;
+
+    let cmd = ffmpeg();
+    for (const p of normalizedPaths) {
+      cmd = cmd.input(p);
+    }
+
+    cmd = cmd.complexFilter([concatFilter]);
+
+    cmd = cmd.outputOptions([
+      '-map [outv]',
+      '-map [outa]',
+      '-c:v libx264',
+      '-c:a aac',
+      '-pix_fmt yuv420p',
+      '-r 24',
+      '-movflags +faststart',
+      ...(targetDurationSeconds ? [`-t ${targetDurationSeconds}`] : []),
+    ]).output(outputPath);
+
+    console.log(`[FFmpeg] Concatenating ${n} clips with filter_complex...`);
+    await runFFmpeg(cmd);
+
+    const actualDur = await getDuration(outputPath);
+    console.log(`[FFmpeg] Concatenated video duration: ${actualDur.toFixed(2)}s`);
+
+    const finalUrl = await uploadFileToCloudinary(outputPath, `concat-${Date.now()}.mp4`);
+    console.log('[FFmpeg] Concatenated video uploaded:', finalUrl);
+    return finalUrl;
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

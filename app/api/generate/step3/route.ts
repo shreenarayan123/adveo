@@ -17,6 +17,9 @@ export async function POST(req: NextRequest) {
     const shotUrls = body.shotUrls as string[] | undefined;
     const imageUrl = body.imageUrl as string | undefined;
     const scenes = body.scenes as SceneInput[] | undefined;
+    const productName = (body.productName as string | undefined) || 'Product';
+    const cta = (body.cta as string | undefined) || 'Shop now';
+    const category = (body.category as string | undefined) || 'product';
     const persistProject = Boolean(projectId) && (body.persistProject ?? true);
 
     if (!Array.isArray(scenes) || scenes.length === 0) {
@@ -29,14 +32,22 @@ export async function POST(req: NextRequest) {
     }
 
     if (persistProject && projectId) {
-      await updateProject(projectId, { status: 'video', progressStep: 'Step 3 test: generating video with Veo' });
+      await updateProject(projectId, { status: 'video', progressStep: 'Step 3: generating single-shot Veo hero ad' });
     }
+
+    const rawVideoUrl = await generateVideo(referenceImageUrl, scenes, {
+      productName,
+      cta,
+      category,
+      durationSeconds: 15,
+      styleHint: scenes[0]?.visualPrompt || scenes[0]?.description,
+    });
 
     if (persistProject && projectId) {
-      await updateProject(projectId, { status: 'finalizing', progressStep: 'Step 3 test: finalizing video' });
+      await updateProject(projectId, { status: 'finalizing', progressStep: 'Step 3: finalizing Veo output' });
     }
 
-    const finalVideoUrl = await generateVideo(referenceImageUrl, scenes);
+    const finalVideoUrl = rawVideoUrl;
 
     if (persistProject && projectId) {
       await updateProject(projectId, {
@@ -52,6 +63,7 @@ export async function POST(req: NextRequest) {
       projectId: projectId || null,
       step3Only: true,
       videoUrl: finalVideoUrl,
+      rawVideoUrl,
       finalVideoUrl,
     });
   } catch (e: any) {

@@ -41,8 +41,21 @@ export async function getProjectStatus(id: string) {
     where: { id }
   });
   if (!project) return null;
+
+  const statusLabelMap: Record<string, string> = {
+    processing: 'Processing request',
+    script: 'Preparing script',
+    shots: 'Preparing visuals',
+    video: 'Generating clip sequence',
+    audio: 'Continuing generation',
+    finalizing: 'Finalizing video',
+    done: 'Completed',
+    error: 'Failed',
+  };
+
   return {
     status: project.status,
+    statusLabel: statusLabelMap[project.status] || 'Processing',
     progressStep: project.progressStep,
     videoUrl: project.videoUrl,
     error: project.error,

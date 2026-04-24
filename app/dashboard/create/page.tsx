@@ -27,21 +27,12 @@ const themes = [
   { id: "vintage", name: "Vintage", description: "Nostalgic retro feel" },
 ]
 
-const voiceOptions = [
-  { id: "excited-male", name: "Excited Male", description: "Energetic & upbeat" },
-  { id: "calm-female", name: "Calm Female", description: "Soothing & professional" },
-  { id: "deep-male", name: "Deep Male", description: "Authoritative & rich" },
-  { id: "young-female", name: "Young Female", description: "Fresh & friendly" },
-  { id: "old-male", name: "Wise Elder", description: "Warm & trustworthy" },
-  { id: "narrator", name: "Narrator", description: "Documentary style" },
-]
-
 const generationSteps = [
   "Analyzing product image...",
-  "Generating product shots...",
-  "Sending to Veo...",
-  "Generating audio with ElevenLabs...",
-  "Syncing audio with video...",
+  "Preparing script...",
+  "Generating clip 1...",
+  "Generating clip 2 from clip 1 frame...",
+  "Finalizing merged video...",
   "Finalizing render...",
 ]
 
@@ -49,7 +40,6 @@ export default function CreateVideoPage() {
   const [currentStep, setCurrentStep] = useState(1)
   const [productImage, setProductImage] = useState<string | null>(null)
   const [selectedTheme, setSelectedTheme] = useState<string | null>(null)
-  const [selectedVoice, setSelectedVoice] = useState<string | null>(null)
   const [ideation, setIdeation] = useState("")
   const [script, setScript] = useState("")
   const [dialogue, setDialogue] = useState("")
@@ -59,9 +49,11 @@ export default function CreateVideoPage() {
   const [removeBackground, setRemoveBackground] = useState(false)
   const [productFile, setProductFile] = useState<File | null>(null)
   const [rawDraftJson, setRawDraftJson] = useState("")
+  const [isLoadingContent, setIsLoadingContent] = useState(false)
 
-  const [productName, setProductName] = useState("")
-  const [productCategory, setProductCategory] = useState("beauty")
+  const [brand, setBrand] = useState("")
+  const [productDescription, setProductDescription] = useState("")
+  const [features, setFeatures] = useState("")  // e.g. "20g protein, Mocha Marvel flavour"
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -75,32 +67,65 @@ export default function CreateVideoPage() {
     }
   }
 
-  const generateContent = async (type: "ideation" | "script" | "dialogue") => {
+  const generateContent = async (type: "ideation" | "script") => {
+    if (isLoadingContent) return; // prevent double-fire while already loading
+
     if (type === "ideation") {
+      setIsLoadingContent(true);
       setIdeation("Generating ideas...");
-      const upRes = await fetch('/api/draft/ideation', { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ theme: selectedTheme || 'general', productName: productName || 'My Product' })
-      });
-      const data = await upRes.json();
-      if(data.idea) setIdeation(data.idea);
-      else setIdeation("Failed to generate.");
+      try {
+        const upRes = await fetch('/api/draft/ideation', { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            theme: selectedTheme || 'general',
+            brand: brand || 'My Brand',
+            productDescription: productDescription || 'My Product',
+            features: features || '',
+          })
+        });
+        const data = await upRes.json();
+        if(data.idea) setIdeation(data.idea);
+        else setIdeation("Failed to generate.");
+      } catch {
+        setIdeation("Failed to generate.");
+      } finally {
+        setIsLoadingContent(false);
+      }
     }
     
-    if (type === "script" || type === "dialogue") {
-      if(!ideation || ideation.includes("Generating")) return;
+    if (type === "script") {
+      // BUG FIX: guard must come BEFORE the loading state setters.
+      // Previously, setScript("Drafting...") fired, then the guard returned early
+      // leaving the UI stuck on "Drafting narration..." with no API call made.
+      if (!ideation || ideation === "Generating ideas...") return;
+
+      setIsLoadingContent(true);
       setScript("Drafting script...");
-      setDialogue("Drafting dialogue...");
-      const upRes = await fetch('/api/draft/script', { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ideation: ideation || 'A creative ad' })
-      });
-      const data = await upRes.json();
-      if(data.script) setScript(data.script);
-      if(data.dialogue) setDialogue(data.dialogue);
-      if(data.rawJson) setRawDraftJson(JSON.stringify(data.rawJson));
+      setDialogue("Drafting narration...");
+      try {
+        const upRes = await fetch('/api/draft/script', { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ideation: ideation || 'A creative ad',
+            theme: selectedTheme || 'general',
+            brand: brand || 'My Brand',
+            productDescription: productDescription || 'My Product',
+            features: features || '',
+            targetAudience: 'general audience',
+          })
+        });
+        const data = await upRes.json();
+        if(data.script) setScript(data.script);
+        if(data.dialogue) setDialogue(data.dialogue);
+        if(data.rawJson) setRawDraftJson(JSON.stringify(data.rawJson));
+      } catch {
+        setScript("Failed to generate script.");
+        setDialogue("Failed to generate narration.");
+      } finally {
+        setIsLoadingContent(false);
+      }
     }
   }
 
@@ -125,9 +150,9 @@ export default function CreateVideoPage() {
         body: JSON.stringify({ 
           imageUrl: uploadedUrl, 
           theme: selectedTheme,
-          voice: selectedVoice,
-          productName: productName || 'My Product',
-          category: productCategory,
+          brand: brand || 'My Brand',
+          productDescription: productDescription || 'My Product',
+          features: features || '',
           customScriptJson: rawDraftJson
         })
       });
@@ -151,20 +176,23 @@ export default function CreateVideoPage() {
         const statusResp = await fetch(`/api/status/${projectId}`);
         const statusData = await statusResp.json();
         const stepMap: Record<string, number> = {
-          'processing': 0, 'script': 1, 'shots': 2, 'video': 2, 'audio': 3, 'finalizing': 4, 'done': 5,
+          'processing': 0, 'script': 1, 'shots': 2, 'video': 2, 'audio': 3, 'finalizing': 3, 'done': 4,
         };
         
         if (statusData.status) {
           const idx = stepMap[statusData.status] || 0;
           setCurrentGenerationStep(Math.min(idx, generationSteps.length - 1));
-          setGenerationProgress(idx * 20); // roughly 20% per step
+          setGenerationProgress(Math.min(100, idx * 25));
         }
 
         if (statusData.status === 'done') {
           clearInterval(interval);
           setGenerationProgress(100);
           setCurrentGenerationStep(generationSteps.length - 1);
-          setTimeout(() => setIsGenerating(false), 800);
+          setTimeout(() => {
+            setIsGenerating(false);
+            window.location.href = '/dashboard/projects';
+          }, 800);
         } else if (statusData.status === 'error') {
           clearInterval(interval);
           alert("Pipeline Error: " + statusData.error);
@@ -179,7 +207,7 @@ export default function CreateVideoPage() {
   const canProceed = () => {
     if (currentStep === 1) return !!productImage
     if (currentStep === 2) return !!selectedTheme
-    if (currentStep === 3) return ideation && script && dialogue && selectedVoice
+    if (currentStep === 3) return ideation && script && dialogue
     return true
   }
 
@@ -265,25 +293,34 @@ export default function CreateVideoPage() {
                   <div className="mt-6 space-y-4 rounded-xl border border-border p-4 bg-muted/10">
                     <h3 className="font-medium text-sm">Product Details</h3>
                     <div className="space-y-2">
-                      <label className="text-sm font-medium text-muted-foreground">Product Name</label>
+                      <label className="text-sm font-medium text-muted-foreground">Brand</label>
                       <input 
                         className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" 
-                        value={productName} 
-                        onChange={e => setProductName(e.target.value)} 
-                        placeholder="e.g. Ocean Blue Perfume" 
+                        value={brand} 
+                        onChange={e => setBrand(e.target.value)} 
+                        placeholder="e.g. Ocean Blue" 
                       />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-sm font-medium text-muted-foreground">Category</label>
-                      <select 
+                      <label className="text-sm font-medium text-muted-foreground">Product Description</label>
+                      <textarea 
                         className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" 
-                        value={productCategory} 
-                        onChange={e => setProductCategory(e.target.value)}
-                      >
-                         <option value="electronics">Electronics</option>
-                         <option value="fashion">Fashion</option>
-                         <option value="beauty">Beauty</option>
-                      </select>
+                        value={productDescription} 
+                        onChange={e => setProductDescription(e.target.value)}
+                        placeholder="e.g. Fresh citrus perfume with amber base notes"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-muted-foreground">
+                        Key Features
+                        <span className="ml-2 text-xs text-muted-foreground/70 font-normal">comma-separated</span>
+                      </label>
+                      <input 
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" 
+                        value={features} 
+                        onChange={e => setFeatures(e.target.value)}
+                        placeholder="e.g. 20g protein, Mocha Marvel flavour, high fibre"
+                      />
                     </div>
                   </div>
                 </div>
@@ -302,7 +339,7 @@ export default function CreateVideoPage() {
                     selectedTheme === theme.id ? "border-primary bg-primary/5" : "border-border"
                   }`}
                 >
-                  <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-lg bg-gradient-to-br from-primary/20 to-accent/20">
+                  <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-lg bg-linear-to-br from-primary/20 to-accent/20">
                     <Sparkles className="h-8 w-8 text-primary" />
                   </div>
                   <span className="font-medium">{theme.name}</span>
@@ -319,8 +356,8 @@ export default function CreateVideoPage() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <h3 className="font-medium">Scene Ideation</h3>
-                  <Button variant="outline" size="sm" onClick={() => generateContent("ideation")}>
-                    <Sparkles className="mr-2 h-4 w-4" />
+                  <Button variant="outline" size="sm" onClick={() => generateContent("ideation")} disabled={isLoadingContent}>
+                    {isLoadingContent ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
                     Generate
                   </Button>
                 </div>
@@ -342,9 +379,9 @@ export default function CreateVideoPage() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <h3 className="font-medium">Video Script</h3>
-                  <Button variant="outline" size="sm" onClick={() => generateContent("script")}>
-                    <Sparkles className="mr-2 h-4 w-4" />
-                    Generate
+                  <Button variant="outline" size="sm" onClick={() => generateContent("script")} disabled={isLoadingContent}>
+                    {isLoadingContent ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+                    Generate Script + Narration
                   </Button>
                 </div>
                 <Textarea
@@ -365,10 +402,7 @@ export default function CreateVideoPage() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <h3 className="font-medium">Voice Narration</h3>
-                  <Button variant="outline" size="sm" onClick={() => generateContent("dialogue")}>
-                    <Sparkles className="mr-2 h-4 w-4" />
-                    Generate
-                  </Button>
+                  <span className="text-xs text-muted-foreground">Generated together with script</span>
                 </div>
                 <Textarea
                   placeholder="Narration lines will appear here..."
@@ -376,31 +410,6 @@ export default function CreateVideoPage() {
                   onChange={(e) => setDialogue(e.target.value)}
                   rows={4}
                 />
-                {dialogue && (
-                  <Button variant="ghost" size="sm" onClick={() => generateContent("dialogue")}>
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                    Regenerate
-                  </Button>
-                )}
-              </div>
-
-              {/* Voice Selection */}
-              <div className="space-y-3">
-                <h3 className="font-medium">Select Voice</h3>
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                  {voiceOptions.map((voice) => (
-                    <button
-                      key={voice.id}
-                      onClick={() => setSelectedVoice(voice.id)}
-                      className={`rounded-lg border-2 p-3 text-left transition-all hover:border-primary/50 ${
-                        selectedVoice === voice.id ? "border-primary bg-primary/5" : "border-border"
-                      }`}
-                    >
-                      <span className="font-medium">{voice.name}</span>
-                      <p className="text-xs text-muted-foreground">{voice.description}</p>
-                    </button>
-                  ))}
-                </div>
               </div>
             </div>
           )}
@@ -423,16 +432,16 @@ export default function CreateVideoPage() {
                       )}
                     </div>
                     <div className="rounded-xl border border-border p-4">
+                      <h4 className="mb-2 text-sm font-medium text-muted-foreground">Brand</h4>
+                      <p className="font-medium">{brand || 'My Brand'}</p>
+                    </div>
+                    <div className="rounded-xl border border-border p-4">
                       <h4 className="mb-2 text-sm font-medium text-muted-foreground">Theme</h4>
                       <p className="font-medium capitalize">{selectedTheme}</p>
                     </div>
                     <div className="rounded-xl border border-border p-4">
-                      <h4 className="mb-2 text-sm font-medium text-muted-foreground">Voice</h4>
-                      <p className="font-medium">{voiceOptions.find((v) => v.id === selectedVoice)?.name}</p>
-                    </div>
-                    <div className="rounded-xl border border-border p-4">
-                      <h4 className="mb-2 text-sm font-medium text-muted-foreground">Scenes</h4>
-                      <p className="font-medium">{ideation.split("\n").length} scenes planned</p>
+                      <h4 className="mb-2 text-sm font-medium text-muted-foreground">Product Description</h4>
+                      <p className="font-medium">{productDescription || 'Not provided'}</p>
                     </div>
                   </div>
 
