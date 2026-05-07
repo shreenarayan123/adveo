@@ -3,7 +3,7 @@
 import type React from "react"
 
 import { useState } from "react"
-import { Upload, Check, RefreshCw, Play, Loader2, Sparkles, X, ImageIcon } from "lucide-react"
+import { Upload, Check, RefreshCw, Play, Loader2, Sparkles, X, ImageIcon, Monitor, Smartphone, Mic2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
@@ -36,6 +36,16 @@ const generationSteps = [
   "Finalizing render...",
 ]
 
+// Voice options — IDs must match VOICE_MAP keys in /api/generate/route.ts
+const VOICE_OPTIONS = [
+  { id: 'excited-male',  label: 'Excited Male',      description: 'Energetic & punchy',   gender: 'male',   icon: '⚡' },
+  { id: 'calm-female',   label: 'Calm Female',        description: 'Smooth & trustworthy', gender: 'female', icon: '🎙️' },
+  { id: 'deep-male',     label: 'Deep Male',          description: 'Authoritative & bold', gender: 'male',   icon: '🔊' },
+  { id: 'young-female',  label: 'Young Female',       description: 'Fresh & enthusiastic', gender: 'female', icon: '✨' },
+  { id: 'old-male',      label: 'Trustworthy Male',   description: 'Warm & experienced',   gender: 'male',   icon: '🎤' },
+  { id: 'narrator',      label: 'Narrator',           description: 'Documentary style',    gender: 'male',   icon: '📽️' },
+] as const;
+
 export default function CreateVideoPage() {
   const [currentStep, setCurrentStep] = useState(1)
   const [productImage, setProductImage] = useState<string | null>(null)
@@ -54,6 +64,10 @@ export default function CreateVideoPage() {
   const [brand, setBrand] = useState("")
   const [productDescription, setProductDescription] = useState("")
   const [features, setFeatures] = useState("")  // e.g. "20g protein, Mocha Marvel flavour"
+
+  // ── New controls ──────────────────────────────────────────────────────────
+  const [orientation, setOrientation] = useState<'horizontal' | 'vertical'>('horizontal')
+  const [selectedVoice, setSelectedVoice] = useState<string>('calm-female')
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -153,7 +167,9 @@ export default function CreateVideoPage() {
           brand: brand || 'My Brand',
           productDescription: productDescription || 'My Product',
           features: features || '',
-          customScriptJson: rawDraftJson
+          customScriptJson: rawDraftJson,
+          orientation,
+          voice: selectedVoice,
         })
       });
       const data = await resp.json();
@@ -330,22 +346,61 @@ export default function CreateVideoPage() {
 
           {/* Step 2: Choose Theme */}
           {currentStep === 2 && (
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-              {themes.map((theme) => (
-                <button
-                  key={theme.id}
-                  onClick={() => setSelectedTheme(theme.id)}
-                  className={`flex flex-col items-center rounded-xl border-2 p-4 text-center transition-all hover:border-primary/50 ${
-                    selectedTheme === theme.id ? "border-primary bg-primary/5" : "border-border"
-                  }`}
-                >
-                  <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-lg bg-linear-to-br from-primary/20 to-accent/20">
-                    <Sparkles className="h-8 w-8 text-primary" />
-                  </div>
-                  <span className="font-medium">{theme.name}</span>
-                  <span className="mt-1 text-xs text-muted-foreground">{theme.description}</span>
-                </button>
-              ))}
+            <div className="space-y-6">
+              {/* Video Format */}
+              <div className="space-y-3">
+                <h3 className="font-medium">Video Format</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => setOrientation('horizontal')}
+                    className={`flex items-center gap-3 rounded-xl border-2 p-4 transition-all hover:border-primary/50 ${
+                      orientation === 'horizontal' ? 'border-primary bg-primary/5' : 'border-border'
+                    }`}
+                  >
+                    <Monitor className={`h-6 w-6 ${orientation === 'horizontal' ? 'text-primary' : 'text-muted-foreground'}`} />
+                    <div className="text-left">
+                      <p className="font-medium text-sm">Horizontal 16:9</p>
+                      <p className="text-xs text-muted-foreground">YouTube / TV Ads</p>
+                    </div>
+                    {orientation === 'horizontal' && <Check className="ml-auto h-4 w-4 text-primary" />}
+                  </button>
+                  <button
+                    onClick={() => setOrientation('vertical')}
+                    className={`flex items-center gap-3 rounded-xl border-2 p-4 transition-all hover:border-primary/50 ${
+                      orientation === 'vertical' ? 'border-primary bg-primary/5' : 'border-border'
+                    }`}
+                  >
+                    <Smartphone className={`h-6 w-6 ${orientation === 'vertical' ? 'text-primary' : 'text-muted-foreground'}`} />
+                    <div className="text-left">
+                      <p className="font-medium text-sm">Vertical 9:16</p>
+                      <p className="text-xs text-muted-foreground">Reels / TikTok</p>
+                    </div>
+                    {orientation === 'vertical' && <Check className="ml-auto h-4 w-4 text-primary" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Theme */}
+              <div className="space-y-3">
+                <h3 className="font-medium">Theme</h3>
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                  {themes.map((theme) => (
+                    <button
+                      key={theme.id}
+                      onClick={() => setSelectedTheme(theme.id)}
+                      className={`flex flex-col items-center rounded-xl border-2 p-4 text-center transition-all hover:border-primary/50 ${
+                        selectedTheme === theme.id ? "border-primary bg-primary/5" : "border-border"
+                      }`}
+                    >
+                      <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-lg bg-linear-to-br from-primary/20 to-accent/20">
+                        <Sparkles className="h-8 w-8 text-primary" />
+                      </div>
+                      <span className="font-medium">{theme.name}</span>
+                      <span className="mt-1 text-xs text-muted-foreground">{theme.description}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
 
@@ -398,10 +453,36 @@ export default function CreateVideoPage() {
                 )}
               </div>
 
+              {/* Voice Selector */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Mic2 className="h-4 w-4 text-primary" />
+                  <h3 className="font-medium">Voice Type</h3>
+                </div>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  {VOICE_OPTIONS.map((v) => (
+                    <button
+                      key={v.id}
+                      onClick={() => setSelectedVoice(v.id)}
+                      className={`flex flex-col items-start gap-1 rounded-xl border-2 p-3 text-left transition-all hover:border-primary/50 ${
+                        selectedVoice === v.id ? 'border-primary bg-primary/5' : 'border-border'
+                      }`}
+                    >
+                      <div className="flex w-full items-center justify-between">
+                        <span className="text-lg">{v.icon}</span>
+                        {selectedVoice === v.id && <Check className="h-3.5 w-3.5 text-primary" />}
+                      </div>
+                      <span className="text-sm font-medium leading-tight">{v.label}</span>
+                      <span className="text-xs text-muted-foreground">{v.description}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {/* Dialogue */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <h3 className="font-medium">Voice Narration</h3>
+                  <h3 className="font-medium">Voice Narration Preview</h3>
                   <span className="text-xs text-muted-foreground">Generated together with script</span>
                 </div>
                 <Textarea
@@ -438,6 +519,14 @@ export default function CreateVideoPage() {
                     <div className="rounded-xl border border-border p-4">
                       <h4 className="mb-2 text-sm font-medium text-muted-foreground">Theme</h4>
                       <p className="font-medium capitalize">{selectedTheme}</p>
+                    </div>
+                    <div className="rounded-xl border border-border p-4">
+                      <h4 className="mb-2 text-sm font-medium text-muted-foreground">Format</h4>
+                      <p className="font-medium capitalize">{orientation === 'horizontal' ? '16:9 Horizontal' : '9:16 Vertical'}</p>
+                    </div>
+                    <div className="rounded-xl border border-border p-4">
+                      <h4 className="mb-2 text-sm font-medium text-muted-foreground">Voice</h4>
+                      <p className="font-medium">{VOICE_OPTIONS.find(v => v.id === selectedVoice)?.label ?? selectedVoice}</p>
                     </div>
                     <div className="rounded-xl border border-border p-4">
                       <h4 className="mb-2 text-sm font-medium text-muted-foreground">Product Description</h4>

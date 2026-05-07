@@ -13,15 +13,29 @@ export interface Project {
   error?: string | null;
   scriptJson?: string | null;
   voiceId?: string | null;
+  orientation?: string | null;
 }
 
-export async function createProject({ imageUrl, theme, scriptJson, voiceId }: { imageUrl: string; theme: string; scriptJson?: string; voiceId?: string; }) {
+export async function createProject({
+  imageUrl,
+  theme,
+  scriptJson,
+  voiceId,
+  orientation = 'vertical',
+}: {
+  imageUrl: string;
+  theme: string;
+  scriptJson?: string;
+  voiceId?: string;
+  orientation?: string;
+}) {
   const project = await prisma.project.create({
     data: {
       imageUrl,
       theme,
       scriptJson,
       voiceId,
+      orientation,
       status: 'processing',
       progressStep: 'init',
     } as any

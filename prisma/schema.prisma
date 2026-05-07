@@ -31,6 +31,7 @@ model Project {
   error        String?
   scriptJson   String?
   voiceId      String?
+  orientation  String?  @default("vertical")  // 'horizontal' | 'vertical'
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }

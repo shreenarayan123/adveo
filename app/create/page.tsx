@@ -11,11 +11,11 @@ const THEMES = [
 ];
 
 const VOICES = [
-  { id: "calm-female",   label: "Calm Female",       desc: "Dorothy — smooth & trustworthy" },
-  { id: "excited-male",  label: "Energetic Male",    desc: "Adam — punchy & direct" },
-  { id: "deep-male",     label: "Deep & Authoritative", desc: "Arnold — commanding" },
-  { id: "young-female",  label: "Young Female",      desc: "Bella — light & relatable" },
-  { id: "narrator",      label: "Documentary",       desc: "Arnold — storytelling" },
+  { id: "calm-female",   label: "Calm Female",          desc: "Dorothy — smooth & trustworthy" },
+  { id: "excited-male",  label: "Energetic Male",        desc: "Adam — punchy & direct" },
+  { id: "deep-male",     label: "Deep & Authoritative",  desc: "Arnold — commanding" },
+  { id: "young-female",  label: "Young Female",          desc: "Bella — light & relatable" },
+  { id: "narrator",      label: "Documentary",           desc: "Arnold — storytelling" },
 ];
 
 const STEPS = [
@@ -23,6 +23,31 @@ const STEPS = [
   { key: "video",   label: "Video",    icon: "🎬" },
   { key: "audio",   label: "Audio",    icon: "🎙" },
   { key: "done",    label: "Done",     icon: "✅" },
+];
+
+const ORIENTATIONS = [
+  {
+    id: "vertical",
+    label: "Vertical",
+    sublabel: "9:16 • Reels / TikTok",
+    icon: (
+      <svg viewBox="0 0 24 24" className="w-10 h-10" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <rect x="6" y="2" width="12" height="20" rx="2" />
+        <line x1="9" y1="19" x2="15" y2="19" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    id: "horizontal",
+    label: "Horizontal",
+    sublabel: "16:9 • YouTube / TV",
+    icon: (
+      <svg viewBox="0 0 24 24" className="w-10 h-10" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <rect x="2" y="5" width="20" height="14" rx="2" />
+        <line x1="10" y1="20" x2="14" y2="20" strokeLinecap="round" />
+      </svg>
+    ),
+  },
 ];
 
 export default function CreatePage() {
@@ -34,6 +59,7 @@ export default function CreatePage() {
   const [features, setFeatures]             = useState("");
   const [targetAudience, setTargetAudience] = useState("");
   const [voice, setVoice]                   = useState("calm-female");
+  const [orientation, setOrientation]       = useState("vertical");
   const [projectId, setProjectId]           = useState("");
   const [status, setStatus]                 = useState("");
   const [progressStep, setProgressStep]     = useState("");
@@ -50,7 +76,6 @@ export default function CreatePage() {
     setUploading(true);
     setError("");
 
-    // Show local preview immediately
     setImagePreview(URL.createObjectURL(file));
 
     const formData = new FormData();
@@ -86,6 +111,7 @@ export default function CreatePage() {
           features: features.trim(),
           targetAudience: targetAudience.trim() || "general audience",
           voice,
+          orientation,
         }),
       });
       const data = await res.json();
@@ -127,7 +153,9 @@ export default function CreatePage() {
   }
 
   const canGenerate = imageUrl && theme && brand.trim() && productDescription.trim() && !polling;
-  const currentStep = STEPS.find((s) => s.key === status);
+
+  // Determine video aspect ratio class for the player
+  const videoAspectClass = orientation === "horizontal" ? "aspect-video" : "aspect-[9/16] max-w-xs mx-auto";
 
   return (
     <div className="min-h-screen bg-[#0a0a0f] text-white font-sans">
@@ -144,7 +172,7 @@ export default function CreatePage() {
           <h1 className="text-4xl font-bold tracking-tight bg-gradient-to-r from-white to-white/60 bg-clip-text text-transparent">
             Generate your product ad
           </h1>
-          <p className="mt-2 text-white/50 text-sm">Upload a product image → get an 18-second cinematic ad with voiceover.</p>
+          <p className="mt-2 text-white/50 text-sm">Upload a product image → get an 18-second cinematic ad with voiceover & BGM.</p>
         </div>
 
         {/* ── Step 1: Product Image ── */}
@@ -256,9 +284,45 @@ export default function CreatePage() {
           </div>
         </section>
 
-        {/* ── Step 4: Voice ── */}
+        {/* ── Step 4: Video Format (Orientation) ── */}
         <section className="space-y-3">
-          <Label step="4" text="Voiceover Style" />
+          <Label step="4" text="Video Format" />
+          <div className="grid grid-cols-2 gap-3">
+            {ORIENTATIONS.map((o) => (
+              <button
+                key={o.id}
+                id={`orientation-${o.id}`}
+                onClick={() => setOrientation(o.id)}
+                disabled={polling}
+                className={`relative flex flex-col items-center gap-3 p-5 rounded-2xl border text-center transition-all disabled:opacity-40 ${
+                  orientation === o.id
+                    ? "border-violet-500 bg-violet-500/15 text-white shadow-lg shadow-violet-500/10"
+                    : "border-white/10 bg-white/5 text-white/60 hover:border-white/25 hover:text-white"
+                }`}
+              >
+                {/* Aspect ratio visual preview */}
+                <div className={`relative rounded-lg border-2 flex items-center justify-center transition-colors ${
+                  orientation === o.id ? "border-violet-400" : "border-white/20"
+                } ${o.id === "vertical" ? "w-8 h-14" : "w-14 h-8"}`}>
+                  <div className={`rounded-sm transition-colors ${
+                    orientation === o.id ? "bg-violet-400/40" : "bg-white/10"
+                  } ${o.id === "vertical" ? "w-4 h-8" : "w-8 h-4"}`} />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold">{o.label}</p>
+                  <p className={`text-xs mt-0.5 ${orientation === o.id ? "text-violet-300" : "text-white/40"}`}>{o.sublabel}</p>
+                </div>
+                {orientation === o.id && (
+                  <span className="absolute top-2.5 right-3 text-violet-400 text-xs font-medium">✓</span>
+                )}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        {/* ── Step 5: Voice ── */}
+        <section className="space-y-3">
+          <Label step="5" text="Voiceover Style" />
           <div className="space-y-2">
             {VOICES.map((v) => (
               <button
@@ -299,7 +363,7 @@ export default function CreatePage() {
               <Spinner size={14} /> Generating your ad…
             </span>
           ) : (
-            "✨ Generate 18-second Ad"
+            `✨ Generate ${orientation === "horizontal" ? "16:9 Horizontal" : "9:16 Vertical"} Ad`
           )}
         </button>
 
@@ -354,9 +418,12 @@ export default function CreatePage() {
             <div className="flex items-center gap-2">
               <span className="flex h-5 w-5 items-center justify-center rounded-full bg-green-500/20 text-green-400 text-xs">✓</span>
               <p className="text-sm font-medium text-green-400">Your ad is ready!</p>
+              <span className="ml-auto text-xs text-white/30 border border-white/10 px-2 py-0.5 rounded-full">
+                {orientation === "horizontal" ? "16:9 Horizontal" : "9:16 Vertical"}
+              </span>
             </div>
-            <div className="rounded-2xl overflow-hidden border border-white/10 bg-black">
-              <video src={videoUrl} controls autoPlay loop playsInline className="w-full aspect-video" />
+            <div className={`rounded-2xl overflow-hidden border border-white/10 bg-black ${videoAspectClass}`}>
+              <video src={videoUrl} controls autoPlay loop playsInline className="w-full h-full object-contain" />
             </div>
             <div className="flex gap-3">
               <a

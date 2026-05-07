@@ -20,6 +20,7 @@ function withGenerationMeta(script: any, meta: {
   features: string;
   cta: string;
   targetAudience: string;
+  orientation: string;
 }) {
   if (!script || typeof script !== 'object') return script;
   return {
@@ -40,7 +41,8 @@ export async function POST(req: NextRequest) {
       features = '',            // e.g. "20g protein, Mocha Marvel flavour"
       targetAudience = 'general audience',
       customScriptJson,
-      voice
+      voice,
+      orientation = 'horizontal', // 'horizontal' | 'vertical'
     } = await req.json();
 
     if (!imageUrl || !theme) return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
@@ -83,7 +85,7 @@ export async function POST(req: NextRequest) {
 
         // Store the generated CTA from GPT — don't override with 'Shop now'
         const generatedCta = scriptObj.cta || scriptObj.tagline || 'See what happens when you try it.';
-        scriptObj = withGenerationMeta(scriptObj, { brand, productDescription, features, cta: generatedCta, targetAudience });
+        scriptObj = withGenerationMeta(scriptObj, { brand, productDescription, features, cta: generatedCta, targetAudience, orientation });
         finalScriptJson = JSON.stringify(scriptObj);
       } catch (err: any) {
         console.error('Script generation failed:', err);
@@ -92,12 +94,12 @@ export async function POST(req: NextRequest) {
     } else {
       scriptObj = JSON.parse(finalScriptJson);
       const generatedCta = scriptObj.cta || scriptObj.tagline || 'See what happens when you try it.';
-      scriptObj = withGenerationMeta(scriptObj, { brand, productDescription, features, cta: generatedCta, targetAudience });
+      scriptObj = withGenerationMeta(scriptObj, { brand, productDescription, features, cta: generatedCta, targetAudience, orientation });
       finalScriptJson = JSON.stringify(scriptObj);
     }
 
-    // Create project — store voiceId so the pipeline can use it
-    const project = await createProject({ imageUrl, theme, scriptJson: finalScriptJson, voiceId });
+    // Create project — store voiceId and orientation so the pipeline can use them
+    const project = await createProject({ imageUrl, theme, scriptJson: finalScriptJson, voiceId, orientation });
     await updateProject(project.id, { progressStep: 'Script generated', status: 'script' });
 
     // Kick off background pipeline (non-blocking)
